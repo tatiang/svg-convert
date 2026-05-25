@@ -4,7 +4,6 @@ import {
   isCanvasRect,
   type Subpath,
 } from "./subpaths";
-import { classifyCutEngrave, type Classification } from "./nesting";
 
 export type ViewBox = {
   minX: number;
@@ -50,10 +49,6 @@ export function convert(sourceSvgText: string): ConversionResult {
   const pathEls = Array.from(doc.getElementsByTagName("path"));
   const sourcePathCount = pathEls.length;
 
-  // Drop inverse-fill mask paths whole. Their first subpath traces the canvas
-  // rect; the remaining subpaths trace combined shapes that don't match the
-  // stroked/filled outlines elsewhere in the file, so we'd never dedup them
-  // against the real geometry. The mask exists only as a visualization aid.
   let sourceSubpathCount = 0;
   let maskSubpathsRemoved = 0;
   const withoutCanvas: Subpath[] = [];
@@ -62,10 +57,6 @@ export function convert(sourceSvgText: string): ConversionResult {
     if (!d) continue;
     const subs = splitSubpaths(d);
     sourceSubpathCount += subs.length;
-    if (subs.length > 0 && isCanvasRect(subs[0], viewBox)) {
-      maskSubpathsRemoved += subs.length;
-      continue;
-    }
     for (const sp of subs) {
       if (isCanvasRect(sp, viewBox)) {
         maskSubpathsRemoved++;
@@ -75,7 +66,14 @@ export function convert(sourceSvgText: string): ConversionResult {
     }
   }
 
-  // Dedup by canonical key (handles reversed winding).
+  // Count occurrences per canonical key, then dedup keeping first occurrence.
+  // Subpaths appearing exactly once come only from the mask (CUT boundary).
+  // Subpaths appearing 2+ times are stroked + filled duplicates (ENGRAVE guides).
+  const counts = new Map<string, number>();
+  for (const sp of withoutCanvas) {
+    const key = canonicalKey(sp);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
   const seen = new Map<string, Subpath>();
   for (const sp of withoutCanvas) {
     const key = canonicalKey(sp);
@@ -84,10 +82,8 @@ export function convert(sourceSvgText: string): ConversionResult {
   const unique = Array.from(seen.values());
   const duplicatesRemoved = withoutCanvas.length - unique.length;
 
-  // Classify each unique contour.
-  const classes: Classification[] = classifyCutEngrave(unique);
-  const cut = unique.filter((_, i) => classes[i] === "cut");
-  const engrave = unique.filter((_, i) => classes[i] === "engrave");
+  const cut = unique.filter((sp) => (counts.get(canonicalKey(sp)) ?? 1) === 1);
+  const engrave = unique.filter((sp) => (counts.get(canonicalKey(sp)) ?? 1) > 1);
 
   const outputSvg = emitSvg(viewBox, cut, engrave);
 
