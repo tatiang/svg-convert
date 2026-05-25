@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Laser Map Maker → xTool Studio SVG Converter</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Laser Map Maker → xTool Studio</h1>
+      <p class="subtitle">
+        Drop a Laser Map Maker SVG. Get an xTool-Studio-ready file with
+        deduplicated paths split into a red cut layer and a black engrave
+        layer.
+      </p>
+    </header>
+
+    <section id="dropzone" class="dropzone">
+      <input type="file" id="fileInput" accept=".svg,image/svg+xml" />
+      <p>Drop an SVG here, or click to choose a file.</p>
+    </section>
+
+    <p id="stats" class="stats" hidden></p>
+
+    <section class="previews">
+      <div class="pane">
+        <h2>Source</h2>
+        <div id="sourcePreview" class="preview"></div>
+      </div>
+      <div class="pane">
+        <h2>Converted</h2>
+        <div id="convertedPreview" class="preview"></div>
+      </div>
+    </section>
+
+    <section class="actions">
+      <button id="downloadBtn" disabled>Download converted SVG</button>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

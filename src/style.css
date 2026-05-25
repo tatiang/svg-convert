@@ -1,0 +1,142 @@
+:root {
+  --bg: #f7f7f9;
+  --fg: #1b1f23;
+  --muted: #6b7280;
+  --border: #d0d7de;
+  --accent: #2563eb;
+  --pane: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 1.5rem;
+  max-width: 1200px;
+  margin-inline: auto;
+}
+
+header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+}
+
+.subtitle {
+  margin: 0 0 1.25rem;
+  color: var(--muted);
+}
+
+.dropzone {
+  position: relative;
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+  background: var(--pane);
+  transition: border-color 120ms, background 120ms;
+}
+
+.dropzone.dragover {
+  border-color: var(--accent);
+  background: #eef4ff;
+}
+
+.dropzone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.dropzone p {
+  margin: 0;
+  pointer-events: none;
+  color: var(--muted);
+}
+
+.stats {
+  margin: 1rem 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  color: var(--fg);
+  background: #eef2f7;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+}
+
+.previews {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.pane {
+  background: var(--pane);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.pane h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.preview {
+  aspect-ratio: 1 / 1;
+  background: #fafbfc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview svg {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+}
+
+.preview:empty::before {
+  content: "—";
+  color: var(--muted);
+}
+
+.actions {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+button {
+  font: inherit;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: #c7d2fe;
+  border-color: #c7d2fe;
+  cursor: not-allowed;
+}
+
+@media (max-width: 700px) {
+  .previews {
+    grid-template-columns: 1fr;
+  }
+}
