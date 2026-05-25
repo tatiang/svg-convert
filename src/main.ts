@@ -1,5 +1,24 @@
 import { convert, type ConversionStats } from "./converter";
 
+// Stamp the build date injected by Vite at build time.
+const buildDateEl = document.getElementById("buildDate");
+if (buildDateEl) {
+  const d = new Date(__BUILD_DATE__);
+  const date = d.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const time = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  });
+  buildDateEl.textContent = `Built ${date} at ${time}`;
+}
+
 const fileInput = document.getElementById("fileInput") as HTMLInputElement;
 const dropzone = document.getElementById("dropzone") as HTMLElement;
 const sourcePreview = document.getElementById("sourcePreview") as HTMLElement;
