@@ -4,6 +4,11 @@ import {
   isCanvasRect,
   type Subpath,
 } from "./subpaths";
+import {
+  subpathToPolygon,
+  interiorPoint,
+  pointInPolygon,
+} from "./nesting";
 
 export type ViewBox = {
   minX: number;
@@ -82,8 +87,63 @@ export function convert(sourceSvgText: string): ConversionResult {
   const unique = Array.from(seen.values());
   const duplicatesRemoved = withoutCanvas.length - unique.length;
 
-  const cut = unique.filter((sp) => (counts.get(canonicalKey(sp)) ?? 1) === 1);
-  const engrave = unique.filter((sp) => (counts.get(canonicalKey(sp)) ?? 1) > 1);
+  // First pass: count-based.
+  // count ≥ 2 → path appears as both stroked outline and positive fill → ENGRAVE guide.
+  // count = 1 → path exists only in the inverse-fill mask → likely CUT boundary,
+  //   but the mask uses even-odd fill so a single outer-donut subpath also appears once.
+  const definiteEngrave = unique.filter(
+    (sp) => (counts.get(canonicalKey(sp)) ?? 1) > 1
+  );
+  const oncePaths = unique.filter(
+    (sp) => (counts.get(canonicalKey(sp)) ?? 1) === 1
+  );
+
+  // Second pass: nesting tiebreaker for count=1 paths.
+  // A count=1 path whose interior is geometrically INSIDE a known-engrave path, or inside
+  // another count=1 path, is the inner (CUT) boundary of a donut hole.
+  // A count=1 path that CONTAINS other count=1 paths inside it is the outer (ENGRAVE) boundary.
+  const engravePolys = definiteEngrave.map((sp) => subpathToPolygon(sp));
+  const oncePolys = oncePaths.map((sp) => subpathToPolygon(sp));
+  const onceInteriors = oncePolys.map((p) => interiorPoint(p));
+
+  const cut: Subpath[] = [];
+  const engrave: Subpath[] = [...definiteEngrave];
+
+  for (let i = 0; i < oncePaths.length; i++) {
+    const interior = onceInteriors[i];
+
+    // Is this path's interior inside any known-engrave polygon?
+    const insideEngrave = engravePolys.some((ep) =>
+      pointInPolygon(interior, ep)
+    );
+    if (insideEngrave) {
+      cut.push(oncePaths[i]);
+      continue;
+    }
+
+    // Is this path's interior inside any OTHER count=1 polygon?
+    const insideOther = oncePolys.some((op, j) => {
+      if (j === i) return false;
+      return pointInPolygon(interior, op);
+    });
+    if (insideOther) {
+      cut.push(oncePaths[i]);
+      continue;
+    }
+
+    // Does this path CONTAIN any other count=1 path inside it?
+    const containsOther = onceInteriors.some((pt, j) => {
+      if (j === i) return false;
+      return pointInPolygon(pt, oncePolys[i]);
+    });
+    if (containsOther) {
+      engrave.push(oncePaths[i]);
+      continue;
+    }
+
+    // Standalone count=1 path — default to CUT.
+    cut.push(oncePaths[i]);
+  }
 
   const outputSvg = emitSvg(viewBox, cut, engrave);
 
