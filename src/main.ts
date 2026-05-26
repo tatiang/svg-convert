@@ -8,12 +8,12 @@ if (buildDateEl) {
     month: "long",
     day: "numeric",
     year: "numeric",
-    timeZone: "UTC",
+    timeZone: "America/Los_Angeles",
   });
   const time = d.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
-    timeZone: "UTC",
+    timeZone: "America/Los_Angeles",
     timeZoneName: "short",
   });
   buildDateEl.textContent = `Built ${date} at ${time}`;
