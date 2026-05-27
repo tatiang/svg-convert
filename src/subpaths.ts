@@ -73,47 +73,63 @@ function formatNum(n: number): string {
 }
 
 /**
- * Canonical key for dedup. Uses a geometric signature (bbox + centroid +
- * point-count bucket) rather than the exact command sequence — Laser Map
- * Maker emits the same contour as a stroke, a mask hole, and a positive fill
- * with slightly different start points, winding directions, and rounding
- * (e.g. 114.46 vs 115.05 on the same vertex), so an exact string match
- * misses real duplicates. A geometric signature collapses them.
+ * Bounding box of the subpath's endpoint sequence.
  */
-export function canonicalKey(sp: Subpath): string {
+export function subpathBBox(sp: Subpath): {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+} | null {
   const pts = endpointSequence(sp.commands);
-  if (pts.length === 0) return "EMPTY";
-
+  if (pts.length === 0) return null;
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
     maxY = -Infinity;
-  let sumX = 0,
-    sumY = 0;
   for (const [x, y] of pts) {
     if (x < minX) minX = x;
     if (y < minY) minY = y;
     if (x > maxX) maxX = x;
     if (y > maxY) maxY = y;
-    sumX += x;
-    sumY += y;
   }
-  const cx = sumX / pts.length;
-  const cy = sumY / pts.length;
+  return { minX, minY, maxX, maxY };
+}
 
-  // Bucket coordinates to absorb the small per-vertex rounding differences
-  // (~1 unit) we see between the stroked outline and the positive-fill copy
-  // of the same contour. Bucket the point count too. Two genuinely different
-  // shapes would still need to share a bucketed bbox AND bucketed centroid,
-  // which is unlikely within one file.
-  const BBOX_BUCKET = 5;
-  const CENTROID_BUCKET = 5;
-  const COUNT_BUCKET = 20;
-  const b = (n: number, q: number) => Math.round(n / q) * q;
-  const bboxKey = `${b(minX, BBOX_BUCKET)},${b(minY, BBOX_BUCKET)},${b(maxX, BBOX_BUCKET)},${b(maxY, BBOX_BUCKET)}`;
-  const centroidKey = `${b(cx, CENTROID_BUCKET)},${b(cy, CENTROID_BUCKET)}`;
-  const countBucket = b(pts.length, COUNT_BUCKET);
-  return `${bboxKey}|${centroidKey}|${countBucket}`;
+/**
+ * Group subpaths by bbox proximity. Laser Map Maker emits each contour as a
+ * stroke, an inverse-fill mask hole, and a positive fill — with slightly
+ * different start points, winding, rounding, and (for the fill) ~2× the
+ * endpoint count from polygon densification. None of those rewrites move the
+ * bbox by more than a few units, so bbox match within `tol` is a reliable
+ * dedup signal. Returns one group per unique contour; group sizes ≥ 2 are
+ * the stroked+filled duplicates the README calls SCORE guides.
+ */
+export function groupByBBox(
+  subpaths: Subpath[],
+  tol = 15
+): Array<{ members: Subpath[]; bbox: NonNullable<ReturnType<typeof subpathBBox>> }> {
+  const groups: Array<{
+    members: Subpath[];
+    bbox: NonNullable<ReturnType<typeof subpathBBox>>;
+  }> = [];
+  for (const sp of subpaths) {
+    const bb = subpathBBox(sp);
+    if (!bb) continue;
+    const match = groups.find(
+      (g) =>
+        Math.abs(g.bbox.minX - bb.minX) <= tol &&
+        Math.abs(g.bbox.minY - bb.minY) <= tol &&
+        Math.abs(g.bbox.maxX - bb.maxX) <= tol &&
+        Math.abs(g.bbox.maxY - bb.maxY) <= tol
+    );
+    if (match) {
+      match.members.push(sp);
+    } else {
+      groups.push({ members: [sp], bbox: bb });
+    }
+  }
+  return groups;
 }
 
 /** Compute absolute endpoint (x,y) after each drawing command. Skips Z. */

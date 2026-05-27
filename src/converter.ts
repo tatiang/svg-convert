@@ -1,6 +1,7 @@
 import {
   splitSubpaths,
-  canonicalKey,
+  groupByBBox,
+  subpathBBox,
   isCanvasRect,
   type Subpath,
 } from "./subpaths";
@@ -23,7 +24,7 @@ export type ConversionStats = {
   maskSubpathsRemoved: number;
   duplicatesRemoved: number;
   cutCount: number;
-  engraveCount: number;
+  scoreCount: number;
 };
 
 export type ConversionResult = {
@@ -32,7 +33,7 @@ export type ConversionResult = {
 };
 
 const CUT_COLOR = "#FF0000";
-const ENGRAVE_COLOR = "#000000";
+const SCORE_COLOR = "#0000FF";
 const STROKE_WIDTH = "0.1";
 
 export function convert(sourceSvgText: string): ConversionResult {
@@ -71,81 +72,97 @@ export function convert(sourceSvgText: string): ConversionResult {
     }
   }
 
-  // Count occurrences per canonical key, then dedup keeping first occurrence.
-  // Subpaths appearing exactly once come only from the mask (CUT boundary).
-  // Subpaths appearing 2+ times are stroked + filled duplicates (ENGRAVE guides).
-  const counts = new Map<string, number>();
-  for (const sp of withoutCanvas) {
-    const key = canonicalKey(sp);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+  // Cluster subpaths by bbox proximity — each unique contour is emitted by
+  // Laser Map Maker as a stroke, a mask hole, and/or a positive fill with
+  // small per-vertex differences. groupByBBox collapses those variants.
+  //
+  // Two categories of subpaths are dropped before grouping:
+  //
+  // 1. Near-full-canvas polygons: the inverse-fill mask path also contains a
+  //    single large polygon that stitches all the real contours into one even-odd
+  //    fill by routing along canvas edges. Its bbox spans ≥95% of the canvas in
+  //    both dimensions. When stroked this polygon reproduces the scored contours
+  //    plus unwanted canvas-edge seam lines, so it is always dropped.
+  //
+  // 2. Degenerate (zero-area) paths: canvas-edge seam connectors appear as
+  //    separate <path> elements with zero or near-zero height or width. Drop any
+  //    subpath whose shorter bbox dimension is less than 5 units.
+  const canvasW = viewBox.width;
+  const canvasH = viewBox.height;
+  const realSubpaths = withoutCanvas.filter((sp) => {
+    const bb = subpathBBox(sp);
+    if (!bb) return false;
+    const w = bb.maxX - bb.minX;
+    const h = bb.maxY - bb.minY;
+    // Drop degenerate (seam-connector) paths
+    if (Math.min(w, h) < 5) return false;
+    // Drop near-full-canvas stitching polygon
+    if (w / canvasW > 0.95 && h / canvasH > 0.95) return false;
+    return true;
+  });
+  const artifactsRemoved = withoutCanvas.length - realSubpaths.length;
+
+  const groups = groupByBBox(realSubpaths);
+  const unique = groups.map((g) => g.members[0]);
+  const duplicatesRemoved = realSubpaths.length - unique.length + artifactsRemoved;
+
+  // All real contours (group size ≥ 2: appeared as both stroke and fill variants)
+  // become SCORE guides. Contours that appear only once are checked for nesting
+  // and default to CUT if standalone.
+  //
+  // Additionally, every SCORE contour that is not itself nested inside a larger
+  // SCORE contour also gets a CUT copy — the physical piece boundary that the
+  // laser needs to cut through. Inner SCORE contours (nested inside an outer one)
+  // are guides only and are not cut.
+  const scoreGroups = groups.filter((g) => g.members.length > 1);
+  const onceGroups  = groups.filter((g) => g.members.length === 1);
+
+  const scoreReps = scoreGroups.map((g) => g.members[0]);
+  const onceReps  = onceGroups.map((g)  => g.members[0]);
+
+  const scorePolys    = scoreReps.map((sp) => subpathToPolygon(sp));
+  const scoreInteriors = scorePolys.map((p)  => interiorPoint(p));
+  const oncePolys     = onceReps.map((sp)  => subpathToPolygon(sp));
+  const onceInteriors = oncePolys.map((p)   => interiorPoint(p));
+
+  const score: Subpath[] = [...scoreReps];
+  const cut: Subpath[]   = [];
+
+  // Score paths that are NOT nested inside another score path also go to cut —
+  // those are the outermost piece boundaries at this layer level.
+  for (let i = 0; i < scoreReps.length; i++) {
+    const insideAnotherScore = scoreInteriors.some((_, j) => {
+      if (j === i) return false;
+      return pointInPolygon(scoreInteriors[i], scorePolys[j]);
+    });
+    if (!insideAnotherScore) {
+      cut.push(scoreReps[i]);
+    }
   }
-  const seen = new Map<string, Subpath>();
-  for (const sp of withoutCanvas) {
-    const key = canonicalKey(sp);
-    if (!seen.has(key)) seen.set(key, sp);
-  }
-  const unique = Array.from(seen.values());
-  const duplicatesRemoved = withoutCanvas.length - unique.length;
 
-  // First pass: count-based.
-  // count ≥ 2 → path appears as both stroked outline and positive fill → ENGRAVE guide.
-  // count = 1 → path exists only in the inverse-fill mask → likely CUT boundary,
-  //   but the mask uses even-odd fill so a single outer-donut subpath also appears once.
-  const definiteEngrave = unique.filter(
-    (sp) => (counts.get(canonicalKey(sp)) ?? 1) > 1
-  );
-  const oncePaths = unique.filter(
-    (sp) => (counts.get(canonicalKey(sp)) ?? 1) === 1
-  );
-
-  // Second pass: nesting tiebreaker for count=1 paths.
-  // A count=1 path whose interior is geometrically INSIDE a known-engrave path, or inside
-  // another count=1 path, is the inner (CUT) boundary of a donut hole.
-  // A count=1 path that CONTAINS other count=1 paths inside it is the outer (ENGRAVE) boundary.
-  const engravePolys = definiteEngrave.map((sp) => subpathToPolygon(sp));
-  const oncePolys = oncePaths.map((sp) => subpathToPolygon(sp));
-  const onceInteriors = oncePolys.map((p) => interiorPoint(p));
-
-  const cut: Subpath[] = [];
-  const engrave: Subpath[] = [...definiteEngrave];
-
-  for (let i = 0; i < oncePaths.length; i++) {
+  // Count=1 paths: use nesting to decide.
+  for (let i = 0; i < onceReps.length; i++) {
     const interior = onceInteriors[i];
 
-    // Is this path's interior inside any known-engrave polygon?
-    const insideEngrave = engravePolys.some((ep) =>
-      pointInPolygon(interior, ep)
-    );
-    if (insideEngrave) {
-      cut.push(oncePaths[i]);
-      continue;
-    }
+    const insideScore = scorePolys.some((ep) => pointInPolygon(interior, ep));
+    if (insideScore) { cut.push(onceReps[i]); continue; }
 
-    // Is this path's interior inside any OTHER count=1 polygon?
     const insideOther = oncePolys.some((op, j) => {
       if (j === i) return false;
       return pointInPolygon(interior, op);
     });
-    if (insideOther) {
-      cut.push(oncePaths[i]);
-      continue;
-    }
+    if (insideOther) { cut.push(onceReps[i]); continue; }
 
-    // Does this path CONTAIN any other count=1 path inside it?
     const containsOther = onceInteriors.some((pt, j) => {
       if (j === i) return false;
       return pointInPolygon(pt, oncePolys[i]);
     });
-    if (containsOther) {
-      engrave.push(oncePaths[i]);
-      continue;
-    }
+    if (containsOther) { score.push(onceReps[i]); continue; }
 
-    // Standalone count=1 path — default to CUT.
-    cut.push(oncePaths[i]);
+    cut.push(onceReps[i]);
   }
 
-  const outputSvg = emitSvg(viewBox, cut, engrave);
+  const outputSvg = emitSvg(viewBox, cut, score);
 
   return {
     outputSvg,
@@ -155,7 +172,7 @@ export function convert(sourceSvgText: string): ConversionResult {
       maskSubpathsRemoved,
       duplicatesRemoved,
       cutCount: cut.length,
-      engraveCount: engrave.length,
+      scoreCount: score.length,
     },
   };
 }
@@ -188,7 +205,7 @@ function ensureClosed(d: string): string {
 function emitSvg(
   viewBox: ViewBox,
   cut: Subpath[],
-  engrave: Subpath[]
+  score: Subpath[]
 ): string {
   const vb = `${viewBox.minX} ${viewBox.minY} ${viewBox.width} ${viewBox.height}`;
   const lines: string[] = [];
@@ -205,11 +222,11 @@ function emitSvg(
     }
     lines.push(`  </g>`);
   }
-  if (engrave.length > 0) {
+  if (score.length > 0) {
     lines.push(
-      `  <g id="engrave" fill="none" stroke="${ENGRAVE_COLOR}" stroke-width="${STROKE_WIDTH}" vector-effect="non-scaling-stroke">`
+      `  <g id="score" fill="none" stroke="${SCORE_COLOR}" stroke-width="${STROKE_WIDTH}" vector-effect="non-scaling-stroke">`
     );
-    for (const sp of engrave) {
+    for (const sp of score) {
       lines.push(`    <path d="${ensureClosed(sp.raw)}"/>`);
     }
     lines.push(`  </g>`);

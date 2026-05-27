@@ -129,7 +129,7 @@ async function handleFiles(files: FileList) {
   const batch: Entry[] = svgFiles.map((file) => ({
     id: crypto.randomUUID(),
     file,
-    outputName: file.name.replace(/\.svg$/i, "") + "_xtool.svg",
+    outputName: buildOutputName(file.name),
     status: "pending" as Status,
     processedAt: new Date(),
   }));
@@ -202,7 +202,7 @@ function setRowStatus(entry: Entry, status: Status) {
   } else if (status === "done" && entry.stats) {
     const s = entry.stats;
     icon.textContent = "✅";
-    meta.textContent = `${s.cutCount} cut · ${s.engraveCount} engrave · ${s.duplicatesRemoved} dupes removed`;
+    meta.textContent = `${s.cutCount} cut · ${s.scoreCount} score · ${s.duplicatesRemoved} dupes removed`;
     time.textContent = entry.processedAt.toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
@@ -278,6 +278,20 @@ function triggerDownload(data: string | Blob, filename: string) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+// "CC layer 2.svg" → "Cataract_Canyon_052626_2.svg" (today's date, MMDDYY).
+// If the input has no trailing number, falls back to the original "_xtool" suffix.
+function buildOutputName(inputName: string): string {
+  const stem = inputName.replace(/\.svg$/i, "");
+  const match = stem.match(/(\d+)\s*$/);
+  if (!match) return `${stem}_xtool.svg`;
+  const n = match[1];
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yy = String(d.getFullYear() % 100).padStart(2, "0");
+  return `Cataract_Canyon_${mm}${dd}${yy}_${n}.svg`;
 }
 
 function sanitizeForPreview(svgText: string): string {
