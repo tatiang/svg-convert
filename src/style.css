@@ -269,6 +269,66 @@ button:disabled {
   color: var(--muted);
 }
 
+/* ── Vector grid (converted preview) ─────────────────────────────────────── */
+.preview.preview-grid-mode {
+  aspect-ratio: unset;
+  max-height: 480px;
+  overflow-y: auto;
+  display: block;
+  padding: 4px;
+}
+
+.vector-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-content: flex-start;
+}
+
+.vector-cell {
+  width: 100px;
+  height: 115px;
+  display: flex;
+  flex-direction: column;
+  background: #fafbfc;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.vector-cell svg {
+  flex: 1;
+  width: 100%;
+  display: block;
+  min-height: 0;
+}
+
+.vector-label {
+  font-size: 0.6rem;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 0 3px;
+  flex-shrink: 0;
+}
+
+.vector-cell-cut {
+  border-color: rgba(255, 0, 0, 0.4);
+}
+
+.vector-cell-cut .vector-label {
+  color: #cc0000;
+}
+
+.vector-cell-score {
+  border-color: rgba(0, 0, 255, 0.3);
+}
+
+.vector-cell-score .vector-label {
+  color: #0000cc;
+}
+
 /* ── Footer ───────────────────────────────────────────────────────────────── */
 footer {
   margin-top: 1.5rem;
