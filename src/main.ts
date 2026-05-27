@@ -261,9 +261,56 @@ function showPreview(entry: Entry) {
   if (!entry.svg || !entry.rawText) return;
   previewLabel.textContent = entry.file.name;
   sourcePreview.innerHTML = sanitizeForPreview(entry.rawText);
-  convertedPreview.innerHTML = sanitizeForPreview(entry.svg);
+
+  // Converted pane: render each path as its own mini-SVG in a scrollable grid.
+  convertedPreview.innerHTML = "";
+  convertedPreview.classList.add("preview-grid-mode");
+  const grid = buildVectorGrid(entry.svg);
+  convertedPreview.appendChild(grid);
+
   previewSection.hidden = false;
   previewSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function buildVectorGrid(svgText: string): HTMLElement {
+  const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+  const svgEl = doc.documentElement;
+  const viewBox = svgEl.getAttribute("viewBox") ?? "0 0 1000 1000";
+
+  const grid = document.createElement("div");
+  grid.className = "vector-grid";
+
+  const groups = Array.from(svgEl.querySelectorAll("g[id]")) as SVGGElement[];
+  for (const group of groups) {
+    const layer = group.getAttribute("id") as "cut" | "score" | string;
+    const strokeColor = layer === "cut" ? "#FF0000" : "#0000FF";
+    const paths = Array.from(group.querySelectorAll("path"));
+    for (const path of paths) {
+      const d = path.getAttribute("d") ?? "";
+
+      const miniSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">` +
+        `<rect x="${viewBox.split(" ")[0]}" y="${viewBox.split(" ")[1]}" ` +
+        `width="${viewBox.split(" ")[2]}" height="${viewBox.split(" ")[3]}" fill="#f5f5f5"/>` +
+        `<path d="${d}" fill="none" stroke="${strokeColor}" stroke-width="8" vector-effect="non-scaling-stroke"/>` +
+        `</svg>`;
+
+      const cell = document.createElement("div");
+      cell.className = `vector-cell vector-cell-${layer}`;
+      cell.innerHTML = miniSvg;
+
+      const label = document.createElement("span");
+      label.className = "vector-label";
+      label.textContent = layer;
+      cell.appendChild(label);
+
+      grid.appendChild(cell);
+    }
+  }
+
+  if (grid.childElementCount === 0) {
+    grid.textContent = "No paths";
+  }
+  return grid;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
